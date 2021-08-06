@@ -1,13 +1,5 @@
 # *Design By Contract* for Rust
 
-[![License][license]][LICENSE]
-![Build status][build]
-![Lines of Code][loc]
-
-[license]: https://img.shields.io/badge/license-MPL%202.0-blue.svg
-[build]: https://gitlab.com/karroffel/contracts/badges/master/build.svg
-[loc]: https://tokei.rs/b1/gitlab/karroffel/contracts?category=code
-
 Annotate functions and methods with "contracts", using *invariants*,
 *pre-conditions* and *post-conditions*.
 
@@ -164,24 +156,6 @@ project-wide.
 extern crate contracts;
 ```
 
-## Configuration
-
-This crate exposes a number of feature flags to configure the assertion behavior.
-
- - `disable_contracts` - disables all checks and assertions.
- - `override_debug` - changes all contracts (except `test_` ones) into `debug_*`
-   versions
- - `override_log` - changes all contracts (except `test_` ones) into a
-   `log::error!()` call if the condition is violated.
-   No abortion happens.
- - `mirai_assertions` - instead of regular assert! style macros, emit macros
-   used by the [MIRAI] static analyzer. For more documentation of this usage, 
-   head to the [MIRAI] repo.
-
-[MIRAI]: https://github.com/facebookexperimental/MIRAI
-
-## TODOs
-
- - implement more contracts for traits.
- - add a static analyzer à la SPARK for whole-projects using the contracts to
-   make static assertions.
+## Todo
+-- all mr related defination and explanation.
+-- code implementation for more operator option, better type inference
