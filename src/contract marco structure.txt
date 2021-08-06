@@ -1,0 +1,70 @@
+FuncWithContracts { 
+	contracts: [
+		Contract { 
+			span: #7 bytes(489..557), 
+			ty: Requires, 
+			mode: Test, 
+			assertions: [Unary(ExprUnary { 
+				attrs: [], 
+				op: Not(Bang), 
+				expr: MethodCall(ExprMethodCall { 
+					attrs: [], 
+					receiver: Path(ExprPath { attrs: [], qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident { ident: "self", span: #0 bytes(507..511) }, arguments: None }] } }), 
+					dot_token: Dot, 
+					method: Ident { ident: "book_exists", span: #0 bytes(512..523) }, 
+					turbofish: None, 
+					paren_token: Paren, 
+					args: [Path(ExprPath { 
+						attrs: [], 
+						qself: None, 
+						path: Path { leading_colon: None, segments: [PathSegment { ident: Ident { ident: "book_id", span: #0 bytes(524..531) }, arguments: None }] } })] }) })], 
+			streams: [
+				TokenStream [
+					Punct { ch: '!', spacing: Alone, span: #0 bytes(506..507) }, 
+					Ident { ident: "self", span: #0 bytes(507..511) }, 
+					Punct { ch: '.', spacing: Alone, span: #0 bytes(511..512) }, 
+					Ident { ident: "book_exists", span: #0 bytes(512..523) }, 
+					Group { delimiter: Parenthesis, stream: TokenStream [Ident { ident: "book_id", span: #0 bytes(524..531) }], span: #0 bytes(523..532) }]
+				], 
+			desc: Some("Book IDs are unique") 
+			}
+		], 
+	function: ItemFn { 
+		attrs: [], 
+		vis: Public(VisPublic { pub_token: Pub }), 
+		sig: Signature { 
+			constness: None, 
+			asyncness: None, 
+			unsafety: None, 
+			abi: None, 
+			fn_token: Fn, 
+			ident: Ident { ident: "add_book", span: #0 bytes(569..577) },
+			generics: Generics { lt_token: None, params: [], gt_token: None, where_clause: None },
+			paren_token: Paren, 
+			inputs: [
+				Receiver(Receiver { attrs: [], reference: Some((And, None)), mutability: Some(Mut), self_token: SelfValue }), 
+				Comma, 
+				Typed(PatType { 
+					attrs: [], 
+					pat: Ident(PatIdent { attrs: [], by_ref: None, mutability: None, ident: Ident { ident: "book_id", span: #0 bytes(589..596) }, subpat: None }), 
+					colon_token: Colon, 
+					ty: Reference(TypeReference { and_token: And, lifetime: None, mutability: None, elem: Path(TypePath { qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident { ident: "str", span: #0 bytes(599..602) }, arguments: None }] } }) }) })],
+			variadic: None, output: Default }, 
+		block: Block { 
+			brace_token: Brace, 
+			stmts: [
+				Semi(
+					MethodCall(ExprMethodCall { 
+						attrs: [], 
+						receiver: Field(ExprField { attrs: [], base: Path(ExprPath { attrs: [], qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident { ident: "self", span: #0 bytes(614..618) }, arguments: None }] } }), dot_token: Dot, member: Named(Ident { ident: "available", span: #0 bytes(619..628) }) }),
+						dot_token: Dot, 
+						method: Ident { ident: "insert", span: #0 bytes(629..635) }, 
+						turbofish: None, 
+						paren_token: Paren, 
+						args: [
+							MethodCall(ExprMethodCall { attrs: [], receiver: Path(ExprPath { attrs: [], qself: None, path: Path { leading_colon: None, segments: [PathSegment { ident: Ident { ident: "book_id", span: #0 bytes(636..643) }, arguments: None }] } }), dot_token: Dot, method: Ident { ident: "to_string", span: #0 bytes(644..653) }, turbofish: None, paren_token: Paren, args: [] })] }), 
+					Semi)
+				] 
+			} 
+	} 
+}

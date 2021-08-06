@@ -354,6 +354,62 @@ pub fn test_invariant(attr: TokenStream, toks: TokenStream) -> TokenStream {
     implementation::invariant(mode, attr, toks).into()
 }
 
+#[proc_macro_attribute]
+pub fn cyclicity(attr: TokenStream, toks: TokenStream) -> TokenStream {
+    let mode = ContractMode::Test;
+    let attr = attr.into();
+    let toks = toks.into();
+    implementation::cyclicity(mode, attr, toks).into()
+}
+
+#[proc_macro_attribute]
+pub fn add_not_equal(attr: TokenStream, toks: TokenStream) -> TokenStream {
+    let mode = ContractMode::Test;
+    let attr = attr.into();
+    let toks = toks.into();
+    implementation::add_not_equal(mode, attr, toks).into()
+}
+
+#[proc_macro_attribute]
+pub fn local_invariance(attr: TokenStream, toks: TokenStream) -> TokenStream {
+    let mode = ContractMode::Test;
+    let attr = attr.into();
+    let toks = toks.into();
+    implementation::local_invariance(mode, attr, toks).into()
+}
+
+#[proc_macro_attribute]
+pub fn homomorphism(attr: TokenStream, toks: TokenStream) -> TokenStream {
+    let mode = ContractMode::Test;
+    let attr = attr.into();
+    let toks = toks.into();
+    implementation::homomorphism(mode, attr, toks).into()
+}
+
+#[proc_macro_attribute]
+pub fn monotonicity(attr: TokenStream, toks: TokenStream) -> TokenStream {
+    let mode = ContractMode::Test;
+    let attr = attr.into();
+    let toks = toks.into();
+    implementation::monotonicity(mode, attr, toks).into()
+}
+
+#[proc_macro_attribute]
+pub fn iter_consistency(attr: TokenStream, toks: TokenStream) -> TokenStream {
+    let mode = ContractMode::Test;
+    let attr = attr.into();
+    let toks = toks.into();
+    implementation::iter_consistency(mode, attr, toks).into()
+}
+
+#[proc_macro_attribute]
+pub fn symmetry(attr: TokenStream, toks: TokenStream) -> TokenStream {
+    let mode = ContractMode::Test;
+    let attr = attr.into();
+    let toks = toks.into();
+    implementation::symmetry(mode, attr, toks).into()
+}
+
 /// A "contract_trait" is a trait which ensures all implementors respect all
 /// provided contracts.
 ///
