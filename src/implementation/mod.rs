@@ -9,13 +9,14 @@ pub(crate) mod invariant;
 pub(crate) mod parse;
 pub(crate) mod requires;
 pub(crate) mod traits;
-pub(crate) mod cyclicity;
+pub(crate) mod periodicity;
 pub(crate) mod add_not_equal;
 pub(crate) mod local_invariance;
 pub(crate) mod iterconsistency;
 pub(crate) mod homomorphism;
 pub(crate) mod symmetry;
 pub(crate) mod monotonicity;
+pub(crate) mod mapping;
 
 use quote::ToTokens;
 use syn::{Expr, ItemFn};
@@ -24,7 +25,8 @@ pub(crate) use ensures::ensures;
 pub(crate) use invariant::invariant;
 use proc_macro2::{Span, TokenStream, TokenTree};
 pub(crate) use requires::requires;
-pub(crate) use cyclicity::cyclicity;
+pub(crate) use periodicity::periodicity;
+pub(crate) use mapping::mapping;
 pub(crate) use add_not_equal::add_not_equal;
 pub(crate) use local_invariance::local_invariance;
 pub(crate) use iterconsistency::iter_consistency;
@@ -92,13 +94,14 @@ pub(crate) enum ContractType {
     Requires,
     Ensures,
     Invariant,
-    Cyclicity,
+    Periodicity,
     AddNotEqual,
     LocalInvariance,
     Monotonicity,
     Symmetry,
     Homomorphism,
     IterConsistency,
+    Mapping,
 }
 
 impl ContractType {
@@ -109,13 +112,14 @@ impl ContractType {
             ContractType::Requires => "Pre-condition",
             ContractType::Ensures => "Post-condition",
             ContractType::Invariant => "Invariant",
-            ContractType::Cyclicity => "cyclicity",
+            ContractType::Periodicity => "periodicity",
             ContractType::AddNotEqual => "add_not_equal",
             ContractType::LocalInvariance => "local_invariance",
             ContractType::Monotonicity => "monotonicity",
             ContractType::Symmetry => "symmetry",
             ContractType::Homomorphism => "homomorphism",
             ContractType::IterConsistency => "iter_consistency",
+            ContractType::Mapping => "mapping",
         }
     }
 
@@ -145,13 +149,14 @@ impl ContractType {
             "test_invariant" => {
                 Some((ContractType::Invariant, ContractMode::Test))
             }
-            "cyclicity" => Some((ContractType::Cyclicity, ContractMode::Test)),
+            "periodicity" => Some((ContractType::Periodicity, ContractMode::Test)),
             "add_not_equal" => Some((ContractType::AddNotEqual, ContractMode::Test)),
             "local_invariance" => Some((ContractType::LocalInvariance, ContractMode::Test)),
             "monotonicity" => Some((ContractType::Monotonicity, ContractMode::Test)),
             "symmetry" => Some((ContractType::Symmetry, ContractMode::Test)),
             "homomorphism" => Some((ContractType::Homomorphism, ContractMode::Test)),
             "iter_consistency" => Some((ContractType::IterConsistency, ContractMode::Test)),
+            "mapping" => Some((ContractType::Mapping, ContractMode::Test)),
             _ => None,
         }
     }

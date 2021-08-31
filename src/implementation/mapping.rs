@@ -6,12 +6,12 @@
  use proc_macro2::TokenStream;
  use syn::ItemFn;
  
- pub(crate) fn cyclicity(
+ pub(crate) fn mapping(
      mode: ContractMode,
      attr: TokenStream,
      toks: TokenStream,
  ) -> TokenStream {
-     let ty = ContractType::Cyclicity;
+     let ty = ContractType::Mapping;
  
      let func: ItemFn = syn::parse_quote!(#toks);
  

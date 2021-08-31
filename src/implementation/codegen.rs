@@ -2,11 +2,11 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use proc_macro2::{Ident, Punct, Span, TokenStream};
+use proc_macro2::{Ident, Span, TokenStream};
 use quote::ToTokens;
 use syn::{
     spanned::Spanned, visit_mut as visitor, Attribute, Expr, ExprCall,
-    ReturnType, FnArg, PatType, Pat
+    ReturnType, FnArg, PatType
 };
 
 use crate::implementation::{
@@ -180,8 +180,8 @@ fn get_assert_macro(
             (ContractType::Invariant, _) => {
                 panic!("expected Invariant to be narrowed down to Pre/Post")
             }
-            (ContractType::Cyclicity, _) => {
-                Some(Ident::new("check_add_equal", span))
+            (ContractType::Periodicity, _) => {
+                Some(Ident::new("periodicity", span))
             }
             (ContractType::AddNotEqual, _) => {
                 Some(Ident::new("check_add_not_equal", span))
@@ -200,6 +200,9 @@ fn get_assert_macro(
             }
             (ContractType::IterConsistency, _) => {
                 Some(Ident::new("iter_consistency", span))
+            }
+            (ContractType::Mapping, _) => {
+                Some(Ident::new("mapping", span))
             }
         }
     } else {
@@ -359,15 +362,24 @@ pub(crate) fn generate(
 
     // a map for variable type <variable name, variable type> for inputs and output, self not contain type info, so not included
     let mut variable_type: HashMap<String, String> = HashMap::new();
-    variable_type.insert(String::from("ret"), output_type.clone().to_token_stream().to_string().split(" ").last().unwrap().to_string());
-    
+    let ret_type_string= output_type.clone().to_token_stream().to_string();
+    if ret_type_string.contains("Result"){
+        variable_type.insert(String::from("ret"), String::from("Result"));
+    }
+    else if ret_type_string.contains("Option"){
+        variable_type.insert(String::from("ret"), String::from("Option"));
+    }
+    else{
+        variable_type.insert(String::from("ret"), output_type.clone().to_token_stream().to_string().split(" ").last().unwrap().to_string());
+    }
+
     // add input elements for variable type
     let function_signature = func.function.sig.clone();
     let _result: Vec<usize> = function_signature.inputs.iter().
     map(|arg|{
         match arg {
             FnArg::Typed(PatType { ty, pat, .. }) => {
-                variable_type.insert(pat.to_token_stream().to_string(), ty.clone().to_token_stream().to_string().split(" ").last().unwrap().to_string());
+                variable_type.insert(pat.to_token_stream().to_string(), ty.clone().to_token_stream().to_string().split(" ").last().expect("input para type parse error").to_string());
                 1
             },
             _ => 0,
@@ -427,6 +439,7 @@ pub(crate) fn generate(
     //         _ => String::new()
     //     }
     // }
+    let self_type = String::from("struct");
 
     // clone and modify the variable used in the relationship
     let mut clone_variable = proc_macro2::TokenStream::new();
@@ -436,20 +449,26 @@ pub(crate) fn generate(
         .iter().enumerate()
         .filter(|pair| {
             let c = pair.1;
-            c.ty == ContractType::Cyclicity || c.ty == ContractType::AddNotEqual || c.ty ==ContractType::LocalInvariance
+            c.ty == ContractType::Periodicity || c.ty == ContractType::AddNotEqual || c.ty ==ContractType::LocalInvariance
             || c.ty == ContractType::Homomorphism || c.ty == ContractType::Monotonicity || c.ty == ContractType::IterConsistency
-            || c.ty == ContractType::Symmetry
+            || c.ty == ContractType::Symmetry || c.ty == ContractType::Mapping
         })
         .flat_map(|pair| {
             let c = pair.1;
             let contract_index = pair.0;
-            let para = c.streams.first().unwrap().clone();
+            let para = c.streams.first().expect("No para here").clone();
             let para_string = para.to_string();
             // println!("{:?}", c.streams);
             let mut para_clone = para_string.clone();
             let mut _para_clone2 = para_string.clone();
             para_clone.push_str(format!("{}{}","_contract_", (index + 1).to_string()).as_str());
-            let modi =c.streams[1].clone();
+            let para_number = c.streams.len();
+            let modi:TokenStream;
+            if para_number > 2{
+                modi = c.streams[2].clone();
+            }else{
+                modi = TokenStream::new();
+            }
             let span = c.streams[0].span();
             let para = syn::Ident::new(&para_string, span);
             let para_clone = syn::Ident::new(&para_clone, span);
@@ -458,13 +477,21 @@ pub(crate) fn generate(
                 mut_def = quote::quote! { mut };
             }
             
-            let ret_type = variable_type.get(&String::from("ret")).unwrap();
-            let mut para_type = variable_type.get(&para_string).unwrap();
+            let ret_type = variable_type.get(&String::from("ret")).expect("No ret type in variable type");
+            let mut para_type;
+            if para_string == String::from("self"){
+                para_type = &self_type;
+            }
+            else{
+                para_type = variable_type.get(&para_string).expect("No para type in variable type");
+            }
             let sym_number = String::from("sym_number");
             let sym_func = String::from("sym_func");
             match (c.ty, c) {
                 (ContractType::IterConsistency, _) => {
-                    debug_assert!(ret_type == para_type, "wrong type, consistency can not satisfied");
+                    if *para_type != self_type{
+                        debug_assert!(ret_type == para_type, "wrong type, consistency can not satisfied");
+                    }
                     let mut para_old = para_string.clone();
                     para_old.push_str("_contract_old");
                     let mr = MRRunInfo::new(contract_index, index + 1, 0, c.ty, para.clone(),para_string, modi.clone());
@@ -478,7 +505,7 @@ pub(crate) fn generate(
                     binding
                 }
                 (ContractType::Homomorphism, _) => {
-                    let op = c.streams[2].clone();
+                    let op = c.streams[1].clone();
                     _para_clone2.push_str(format!("{}{}","_contract_", (index + 2).to_string()).as_str());
                     let para_clone2 = syn::Ident::new(&_para_clone2, span);
                     let mr = MRRunInfo::new(contract_index, index + 1, index + 2, c.ty, para.clone(),para_string, modi.clone());
@@ -498,8 +525,24 @@ pub(crate) fn generate(
                     };
                     binding
                 }
+                (ContractType::Mapping, _) => {
+                    let op = c.streams[1].clone();
+                    _para_clone2.push_str(format!("{}{}","_contract_", (index + 2).to_string()).as_str());
+                    let para_clone2 = syn::Ident::new(&_para_clone2, span);
+                    let mr = MRRunInfo::new(contract_index, index + 1, index + 2, c.ty, para.clone(),para_string, modi.clone());
+                    println!("{:?}", mr);
+                    run_map.insert(contract_index, mr);
+                    index += 2;
+                    let first_assign = merge_statement(para_type.as_str(), &para, &modi, &op, &mut_def, &para_clone);
+                    let second_assign = merge_statement(para_type.as_str(), &para_clone, &modi, &op, &mut_def, &para_clone2);
+                    let binding = quote::quote! {
+                        #first_assign
+                        #second_assign
+                    };
+                    binding
+                }
                 (_,_) => {
-                    let mut op = c.streams[2].clone();
+                    let op = c.streams[1].clone();
                     if c.ty == ContractType::Symmetry{
                         if ["f32", "f64", "i128" , "i16" , "i32" , "i64" , "i8", "isize" , "u128" , "u16" , "u32" , "u64" , "u8" , "usize"].contains(&para_type.as_str()){
                             para_type = &sym_number;
@@ -511,17 +554,18 @@ pub(crate) fn generate(
                             para_type = &sym_func;
                         }
                     }
-                    if c.ty == ContractType::Monotonicity{
-                        if ["f32", "f64", "i128" , "i16" , "i32" , "i64" , "i8", "isize" , "u128" , "u16" , "u32" , "u64" , "u8" , "usize", "str", "String"].contains(&para_type.as_str()){
-                            
-                            let op_syn:proc_macro2::Punct = syn::parse_str("+").unwrap();
-                            op = op_syn.to_token_stream();
-                        }
-                    }
                     let mr = MRRunInfo::new(contract_index, index + 1, 0, c.ty, para.clone(),para_string, modi.clone());
                     index += 1;
                     run_map.insert(contract_index, mr);
-                    let binding = merge_statement(para_type.as_str(), &para, &modi, &op, &mut_def, &para_clone);
+                    let mut binding = TokenStream::new();
+                    if c.ty == ContractType::LocalInvariance{
+                        
+                        let modi_old = syn::Ident::new("modi_contract_old", span);
+                        binding.extend(quote::quote! {
+                            let #modi_old = #modi.clone();
+                        });
+                    }
+                    binding.extend(merge_statement(para_type.as_str(), &para, &modi, &op, &mut_def, &para_clone));
                     // let binding = quote::quote! {
                     //     let #para_clone = format!("{}{}", #para , #modi);
                     //     let #mut_def #para_clone = #para_clone.as_str();
@@ -540,13 +584,13 @@ pub(crate) fn generate(
         .iter().enumerate()
         .filter(|pair| {
             let c = pair.1;
-            c.ty == ContractType::Cyclicity || c.ty == ContractType::AddNotEqual || c.ty ==ContractType::LocalInvariance
+            c.ty == ContractType::Periodicity || c.ty == ContractType::AddNotEqual || c.ty ==ContractType::LocalInvariance
             || c.ty == ContractType::Homomorphism || c.ty == ContractType::Monotonicity || c.ty == ContractType::IterConsistency
-            || c.ty == ContractType::Symmetry
+            || c.ty == ContractType::Symmetry || c.ty == ContractType::Mapping
         })
         .flat_map(|pair| {
-            // println!("{:?}", c);
             let c = pair.1;
+            // println!("{:?}", c);
             let contract_index = pair.0;
             let mr_info_reuslt = run_map.get(&contract_index);
             let mr_info = match mr_info_reuslt{
@@ -570,12 +614,14 @@ pub(crate) fn generate(
             let mode = c.mode.final_mode();
 
             let ret_type = variable_type.get(&String::from("ret")).unwrap();
-            let mut op = TokenStream::new();
-            if c.streams.len() > 2{
-                op = c.streams[2].clone();
+            let mut op = c.streams[1].clone();
+            let mut extra_op = TokenStream::new();
+            if c.streams.len() > 3{
+                let modi = c.streams[2].clone();
+                extra_op = c.streams[3].clone();
                 match ret_type.as_str(){
                     "f32"| "f64"| "i128"| "i16"| "i32"| "i64"| "i8"| "isize"| "u128"| "u16"| "u32"| "u64"| "u8"| "usize" =>{
-                        if op.to_string().chars().nth(0).unwrap().is_ascii_alphabetic(){
+                        if op.to_string().chars().nth(0).expect("operator not implement correctly").is_ascii_alphabetic(){
                             op = proc_macro2::Punct::new(char::from(43), proc_macro2::Spacing::Alone).to_token_stream();
                         }
                     },
@@ -587,10 +633,10 @@ pub(crate) fn generate(
             let ret_str_ident = syn::Ident::new("ret", span);
 
             let ret = match (c.ty, c) {
-                (ContractType::Cyclicity, _) => {
+                (ContractType::Periodicity, _) => {
                     make_str_assertion(
                         mode,
-                        ContractType::Cyclicity,
+                        ContractType::Periodicity,
                         quote::quote! {ret == #ret1},
                         "f(x + t) = f(x)",
                         &desc.clone(),
@@ -605,25 +651,41 @@ pub(crate) fn generate(
                         &desc.clone(),
                     )
                 }
-                (ContractType::LocalInvariance, c) => {
-                    let x = c.streams[1].clone();
-                    // let op = c.streams[2].clone();
-                    let a = merge_expr(ret_type, &ret_str_ident, &syn::Ident::new(x.to_string().as_str(), span), &op);
+                (ContractType::LocalInvariance, _) => {
+                    // let op = c.streams[1].clone();
+                    if extra_op.is_empty(){
+                        println!("Dimension transformation require three arguments, op, modi, second_op");
+                        return extra_op;
+                    };
+                    let modi_contract_old = syn::Ident::new("modi_contract_old", span);
+                    let a = merge_expr(ret_type, &ret_str_ident, &modi_contract_old, &extra_op);
+                    let ret1 = unwrap_return(ret_type, &ret1);
                     let asserts = quote::quote! {#a == #ret1};
                     // let asserts = quote::quote! {ret + #x == #ret1};
                     make_str_assertion(
                         mode,
                         ContractType::LocalInvariance,
                         asserts,
-                        "f(x + y) = f(x)",
+                        "f(x + y) = f(x) + y",
                         &desc.clone(),
                     )
                 }
                 (ContractType::Symmetry, _) => {
-                    let mut sign = TokenStream::new();
-                    if ["f32", "f64", "i128" , "i16" , "i32" , "i64" , "i8", "isize" , "u128" , "u16" , "u32" , "u64" , "u8" , "usize", "str", "String"].contains(&ret_type.as_str()){
-                        sign = proc_macro2::Punct::new(c.streams[2].clone().to_string().as_str().chars().nth(0).unwrap(), proc_macro2::Spacing::Alone).to_token_stream();
-                    }
+                    // let mut sign = TokenStream::new();
+                    if extra_op.is_empty(){
+                        println!("Dimension transformation require three arguments, op, modi, second_op");
+                        return extra_op;
+                    };
+                    let sign = match extra_op.clone().to_string().as_str(){
+                        "+" => TokenStream::new(),
+                        "-" => proc_macro2::Punct::new('-', proc_macro2::Spacing::Alone).to_token_stream(),
+                        _ => {println!("sign operator should be in + or -");
+                            TokenStream::new()
+                        },
+                    };
+                    // if ["f32", "f64", "i128" , "i16" , "i32" , "i64" , "i8", "isize" , "u128" , "u16" , "u32" , "u64" , "u8" , "usize", "str", "String"].contains(&ret_type.as_str()){
+                    // sign = proc_macro2::Punct::new(c.streams[3].clone().to_string().as_str().chars().nth(0).expect("sign operator should be in + or -"), proc_macro2::Spacing::Alone).to_token_stream();
+                    // }
                     let asserts = quote::quote! {ret == #sign #ret1};
                     make_str_assertion(
                         mode,
@@ -635,10 +697,11 @@ pub(crate) fn generate(
                 }
                 (ContractType::Homomorphism, _) => {
                     let third_run_index = mr_info.retindex2;
-                    // let op = c.streams[2].clone();
+                    // let op = c.streams[1].clone();
                     let ret2 = syn::Ident::new(format!("{}{}", "ret", third_run_index).as_str(), span);
                     let a = merge_expr(ret_type, &ret1, &ret2, &op);
-                    let asserts = quote::quote! {ret == #a};
+                    let ret0 = unwrap_return(ret_type, &syn::Ident::new( "ret", span));
+                    let asserts = quote::quote! {#ret0 == #a};
                     // let asserts = quote::quote! {ret == #ret1 + #ret2};
                     make_str_assertion(
                         mode,
@@ -651,9 +714,11 @@ pub(crate) fn generate(
                 (ContractType::IterConsistency, _) => {
                     let para = syn::Ident::new(format!("{}{}", mr_info.variable_name, "_contract_old").as_str(), span);
                     op = c.streams[1].clone();
-                    // let op = c.streams[2].clone();
-                    let a = merge_expr(ret_type, &ret_str_ident, &ret_str_ident, &op);
-                    let b = merge_expr(ret_type, &ret1, &para, &op);
+                    // let op = c.streams[1].clone();
+                    // let a = merge_expr(ret_type, &ret_str_ident, &ret_str_ident, &op);
+                    // let b = merge_expr(ret_type, &ret1, &para, &op);
+                    let a = merge_expr(ret_type, &ret1, &ret_str_ident, &op);
+                    let b = merge_expr(ret_type, &ret_str_ident, &para, &op);
                     let asserts = quote::quote! {#a == #b};
                     // let asserts = quote::quote! {ret + ret == #ret1 + #para};
                     make_str_assertion(
@@ -665,15 +730,31 @@ pub(crate) fn generate(
                     )
                 }
                 (ContractType::Monotonicity, _) => {
-                    // let op = c.streams[2].clone();
-                    // let a = merge_expr(ret_type, &ret_str_ident, &ret1, &op);
                     // let asserts = quote::quote! {#a};
-                    let asserts;
-                    if op.to_string().chars().nth(0).unwrap().is_ascii_alphabetic(){
-                        asserts = quote::quote! {ret.#op(#ret1)};
-                    }else{
-                        asserts = quote::quote! {ret #op #ret1};
-                    }
+                    if extra_op.is_empty(){
+                        println!("Dimension transformation require three arguments, op, modi, second_op");
+                        return extra_op;
+                    };
+                    let asserts = merge_expr(ret_type, &ret_str_ident, &ret1, &extra_op);
+                    // asserts = quote::quote! {ret #extra_op #ret1};
+                    make_str_assertion(
+                        mode,
+                        ContractType::Monotonicity,
+                        asserts,
+                        "x < y -> f(x) < f(y)",
+                        &desc.clone(),
+                    )
+                }
+                (ContractType::Mapping, _) => {
+                    let third_run_index = mr_info.retindex2;
+                    if extra_op.is_empty(){
+                        println!("Dimension transformation require three arguments, op, modi, second_op");
+                        return extra_op;
+                    };
+                    let ret2 = syn::Ident::new(format!("{}{}", "ret", third_run_index).as_str(), span);
+                    let a = merge_expr(ret_type, &ret1, &ret_str_ident, &extra_op);
+                    let b = merge_expr(ret_type, &ret2, &ret1, &extra_op);
+                    let asserts = quote::quote! {#a == #b};
                     make_str_assertion(
                         mode,
                         ContractType::Monotonicity,
@@ -698,7 +779,7 @@ pub(crate) fn generate(
 
     let mut clone_mut = proc_macro2::TokenStream::new();
     println!("{:?}", run_map);
-    println!("{:?}", index);
+    // println!("{:?}", index);
     for run_ind in 0..func.contracts.len(){
         let mr_info_result = run_map.get(&run_ind);
         let mr_info = match mr_info_result {
@@ -834,7 +915,7 @@ pub(crate) fn generate(
 
             #body
     };
-    println!("original body: {}", perpare_and_body);
+    // println!("original body: {}", perpare_and_body);
 
     //
     // create a new function body containing all assertions
@@ -923,14 +1004,21 @@ pub(crate) fn generate(
                 .block.clone();
 
         let mut block_attrs = block_attrs.to_token_stream().to_string();
+        // println!("{:?}", block_attrs);
         for para in &mut_para1{
             block_attrs = block_attrs.replace(format!(" {} ", para).as_str(), format!(" {}{}{} ", para, "_contract_", second_run_index).as_str());
+            block_attrs = block_attrs.replace(format!("({} ", para).as_str(), format!("({}{}{} ", para, "_contract_", second_run_index).as_str());
+            block_attrs = block_attrs.replace(format!(" {})", para).as_str(), format!(" {}{}{})", para, "_contract_", second_run_index).as_str());
+            block_attrs = block_attrs.replace(format!("({})", para).as_str(), format!("({}{}{})", para, "_contract_", second_run_index).as_str());
         }
+        println!("{:?}", key);
 
-        block_attrs = block_attrs.replace(format!("{}", key).as_str(), format!("{}{}{} ", key, "_contract_", second_run_index).as_str());
+        block_attrs = block_attrs.replace(format!(" {} ", key).as_str(), format!(" {}{}{} ", key, "_contract_", second_run_index).as_str());
+        block_attrs = block_attrs.replace(format!("({} ", key).as_str(), format!("({}{}{} ", key, "_contract_", second_run_index).as_str());
+        block_attrs = block_attrs.replace(format!(" {})", key).as_str(), format!(" {}{}{})", key, "_contract_", second_run_index).as_str());
+        block_attrs = block_attrs.replace(format!("({})", key).as_str(), format!("({}{}{})", key, "_contract_", second_run_index).as_str());
         block_attrs = block_attrs.replace("\n", "");
-        // println!("{:?}", block_attrs);
-        let block_attrs = syn::parse_str::<Expr>(block_attrs.as_str()).unwrap();
+        let block_attrs = syn::parse_str::<Expr>(block_attrs.as_str()).expect("function body does not pass compiler");
         // println!("{:?}", &block_attrs);
 
         let second_run_body = new_function_body_with_index(second_run_index, ret_ty.clone(), block_attrs);
@@ -948,7 +1036,7 @@ pub(crate) fn generate(
         extra_body.extend(new_body);
         };
         match mr_info.mr {
-            ContractType::Homomorphism => {
+            ContractType::Homomorphism | ContractType::Mapping => {
                 one_extra_run(second_run_index);
                 one_extra_run(second_run_index + 1);
             },
@@ -1027,53 +1115,122 @@ fn new_function_body_with_index(index: usize, ret_ty: TokenStream, block_attrs: 
     run_body
 }
 
-fn merge_statement(type_str: &str , para: &syn::Ident, modi: &TokenStream, 
+fn merge_statement(ident_type: &str , para: &syn::Ident, modi: &TokenStream, 
     op: &TokenStream, mut_def: &TokenStream, para_clone: &syn::Ident) -> TokenStream {
-    let op_syn:proc_macro2::TokenTree = syn::parse2(op.clone()).unwrap();
-    match (type_str,op_syn){
+    let op_tokenstream:proc_macro2::TokenStream = syn::parse2(op.clone()).expect("operator not loaded correctly");
+    let mut op_type = syn::parse_str("+").unwrap();
+    for token in op_tokenstream{
+        match token{
+            proc_macro2::TokenTree::Punct(_) =>(),
+            proc_macro2::TokenTree::Ident(_) =>{op_type = token; break;},
+            _ => {println!("invalid operator {}, use default operator", op);
+            break;
+            },
+        };
+    }
+    match (ident_type, op_type){
         ("str", proc_macro2::TokenTree::Punct(_)) => quote::quote! {
             // (#para.to_string().push_str(#modi)).as_str()
             let #mut_def #para_clone = format!("{}{}", #para.to_string(),#modi.to_string());
             let #mut_def #para_clone = #para_clone.as_str();
         },
-        ("String",_) => {
+        ("String",proc_macro2::TokenTree::Punct(_)) => {
             quote::quote! {
                 let #mut_def #para_clone = #para.clone()#op#modi;
             }
         },
-        ("f32",_) | ("f64",_)| ("i128",_) | ("i16" ,_)| ("i32",_) | ("i64",_) | ("i8",_)| ("isize" ,_)| ("u128",_) | ("u16",_) | ("u32",_) | ("u64",_) | ("u8",_) | ("usize",_) => quote::quote! {
-            let #mut_def #para_clone = #para#op#modi;
-        },
         ("sym_number",_) => quote::quote! {
-            let #mut_def #para_clone = 2 * #modi #op #para;
+            let #mut_def #para_clone = (2 * #modi) #op #para;
         },
         ("sym_func",_) => quote::quote! {
-            let #mut_def #para_clone = #para.clone();
-            let #mut_def #para_clone = #para_clone.#modi();
+            let mut #para_clone = #para.clone();
+            let #mut_def #para_clone = #para_clone.#op();
+        },
+        (_,proc_macro2::TokenTree::Punct(_)) => quote::quote! {
+            let #mut_def #para_clone = #para.clone()#op#modi;
         },
         (_ ,_)=>quote::quote! {
-            let #mut_def #para_clone = #para.clone();
+            let mut #para_clone = #para.clone();
             let #mut_def #para_clone = #para_clone.#op(#modi);
         },
     }
 }
 
-fn merge_expr(type_str: &str , para: &syn::Ident, modi: &syn::Ident, op: &TokenStream) -> TokenStream {
-    let op_syn:proc_macro2::TokenTree = syn::parse2(op.clone()).unwrap();
-    match (type_str,op_syn){
+fn unwrap_return(ident_type: &str, para: &syn::Ident) -> TokenStream {
+    let modi = para.to_token_stream();
+    match ident_type{
+        "Option" =>{
+            quote::quote! {
+                #modi .unwrap()
+            }
+        },
+        "Result" =>{
+            quote::quote! {
+                #modi .unwrap()
+            }
+        },
+        _ => modi,
+    }
+}
+
+fn merge_expr(ident_type: &str , para: &syn::Ident, modi: &syn::Ident, op: &TokenStream) -> TokenStream {
+    let op_tokenstream:proc_macro2::TokenStream = syn::parse2(op.clone()).expect("operator not loaded correctly for expression");
+    let mut op_type = syn::parse_str("+").unwrap();
+    for token in op_tokenstream{
+        match token{
+            proc_macro2::TokenTree::Punct(_) =>(),
+            proc_macro2::TokenTree::Ident(_) =>{op_type = token; break;},
+            _ => {println!("invalid operator{}, use default operator", op);
+            break;
+            },
+        };
+    }
+    println!("{}{}{}", para, op, modi);
+    let para = match ident_type{
+        "Result" =>{quote::quote! {
+            #para .clone().unwrap()
+        }
+        },
+        "Option" =>{
+            quote::quote! {
+                #para .clone().unwrap()
+            }
+        },
+        _ =>para.to_token_stream(),
+    };
+    let second_ret = modi.clone().to_string();
+    let mut modi = modi.to_token_stream();
+    if ! second_ret.contains("contract_old") {
+        modi = match ident_type{
+            "Option" =>{
+                quote::quote! {
+                    #modi .unwrap()
+                }
+            },
+            "Result" =>{
+                quote::quote! {
+                    #modi .unwrap()
+                }
+            },
+            _ => modi,
+        };
+    }
+    
+    match (ident_type,op_type){
         ("str", proc_macro2::TokenTree::Punct(_)) => quote::quote! {
             format!("{}{}", #para.to_string(),#modi.to_string()).as_str()
         },
-        ("String",_) => {
+        ("String",proc_macro2::TokenTree::Punct(_)) => {
             quote::quote! {
                 format!("{}{}", #para,#modi).as_str()
             }
         },
-        ("f32",_) | ("f64",_)| ("i128",_) | ("i16" ,_)| ("i32",_) | ("i64",_) | ("i8",_)| ("isize" ,_)| ("u128",_) | ("u16",_) | ("u32",_) | ("u64",_) | ("u8",_) | ("usize",_) => quote::quote! {
+        (_,proc_macro2::TokenTree::Punct(_)) => quote::quote! {
             #para#op#modi
         },
-        (_ ,_)=>quote::quote! {
+        (_ ,proc_macro2::TokenTree::Ident(_))=>quote::quote! {
              #para.clone().#op(#modi.clone())
         },
+        (_,_) => panic!("should never reach"),
     }
 }

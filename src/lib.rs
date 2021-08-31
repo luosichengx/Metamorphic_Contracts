@@ -355,11 +355,11 @@ pub fn test_invariant(attr: TokenStream, toks: TokenStream) -> TokenStream {
 }
 
 #[proc_macro_attribute]
-pub fn cyclicity(attr: TokenStream, toks: TokenStream) -> TokenStream {
+pub fn periodicity(attr: TokenStream, toks: TokenStream) -> TokenStream {
     let mode = ContractMode::Test;
     let attr = attr.into();
     let toks = toks.into();
-    implementation::cyclicity(mode, attr, toks).into()
+    implementation::periodicity(mode, attr, toks).into()
 }
 
 #[proc_macro_attribute]
@@ -371,7 +371,7 @@ pub fn add_not_equal(attr: TokenStream, toks: TokenStream) -> TokenStream {
 }
 
 #[proc_macro_attribute]
-pub fn local_invariance(attr: TokenStream, toks: TokenStream) -> TokenStream {
+pub fn dimension_trans(attr: TokenStream, toks: TokenStream) -> TokenStream {
     let mode = ContractMode::Test;
     let attr = attr.into();
     let toks = toks.into();
@@ -408,6 +408,14 @@ pub fn symmetry(attr: TokenStream, toks: TokenStream) -> TokenStream {
     let attr = attr.into();
     let toks = toks.into();
     implementation::symmetry(mode, attr, toks).into()
+}
+
+#[proc_macro_attribute]
+pub fn mapping(attr: TokenStream, toks: TokenStream) -> TokenStream {
+    let mode = ContractMode::Test;
+    let attr = attr.into();
+    let toks = toks.into();
+    implementation::mapping(mode, attr, toks).into()
 }
 
 /// A "contract_trait" is a trait which ensures all implementors respect all
