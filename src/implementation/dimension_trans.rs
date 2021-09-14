@@ -6,12 +6,12 @@
  use proc_macro2::TokenStream;
  use syn::ItemFn;
  
- pub(crate) fn local_invariance(
+ pub(crate) fn dimension_trans(
      mode: ContractMode,
      attr: TokenStream,
      toks: TokenStream,
  ) -> TokenStream {
-     let ty = ContractType::LocalInvariance;
+     let ty = ContractType::DimensionTrans;
  
      let func: ItemFn = syn::parse_quote!(#toks);
  

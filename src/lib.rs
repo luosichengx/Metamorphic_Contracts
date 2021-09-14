@@ -375,7 +375,7 @@ pub fn dimension_trans(attr: TokenStream, toks: TokenStream) -> TokenStream {
     let mode = ContractMode::Test;
     let attr = attr.into();
     let toks = toks.into();
-    implementation::local_invariance(mode, attr, toks).into()
+    implementation::dimension_trans(mode, attr, toks).into()
 }
 
 #[proc_macro_attribute]
@@ -470,5 +470,7 @@ pub fn contract_trait(attrs: TokenStream, toks: TokenStream) -> TokenStream {
         _ => panic!("#[contract_trait] can only be applied to `trait` and `impl ... for` items"),
     };
 
-    tts.into()
+    let a = tts.into();
+    println!("{}", a);
+    a
 }

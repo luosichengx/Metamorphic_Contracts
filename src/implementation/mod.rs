@@ -11,7 +11,7 @@ pub(crate) mod requires;
 pub(crate) mod traits;
 pub(crate) mod periodicity;
 pub(crate) mod add_not_equal;
-pub(crate) mod local_invariance;
+pub(crate) mod dimension_trans;
 pub(crate) mod iterconsistency;
 pub(crate) mod homomorphism;
 pub(crate) mod symmetry;
@@ -28,7 +28,7 @@ pub(crate) use requires::requires;
 pub(crate) use periodicity::periodicity;
 pub(crate) use mapping::mapping;
 pub(crate) use add_not_equal::add_not_equal;
-pub(crate) use local_invariance::local_invariance;
+pub(crate) use dimension_trans::dimension_trans;
 pub(crate) use iterconsistency::iter_consistency;
 pub(crate) use homomorphism::homomorphism;
 pub(crate) use symmetry::symmetry;
@@ -96,7 +96,7 @@ pub(crate) enum ContractType {
     Invariant,
     Periodicity,
     AddNotEqual,
-    LocalInvariance,
+    DimensionTrans,
     Monotonicity,
     Symmetry,
     Homomorphism,
@@ -114,7 +114,7 @@ impl ContractType {
             ContractType::Invariant => "Invariant",
             ContractType::Periodicity => "periodicity",
             ContractType::AddNotEqual => "add_not_equal",
-            ContractType::LocalInvariance => "local_invariance",
+            ContractType::DimensionTrans => "dimension_trans",
             ContractType::Monotonicity => "monotonicity",
             ContractType::Symmetry => "symmetry",
             ContractType::Homomorphism => "homomorphism",
@@ -151,7 +151,7 @@ impl ContractType {
             }
             "periodicity" => Some((ContractType::Periodicity, ContractMode::Test)),
             "add_not_equal" => Some((ContractType::AddNotEqual, ContractMode::Test)),
-            "local_invariance" => Some((ContractType::LocalInvariance, ContractMode::Test)),
+            "dimension_trans" => Some((ContractType::DimensionTrans, ContractMode::Test)),
             "monotonicity" => Some((ContractType::Monotonicity, ContractMode::Test)),
             "symmetry" => Some((ContractType::Symmetry, ContractMode::Test)),
             "homomorphism" => Some((ContractType::Homomorphism, ContractMode::Test)),
