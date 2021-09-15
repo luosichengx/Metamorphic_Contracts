@@ -418,6 +418,14 @@ pub fn mapping(attr: TokenStream, toks: TokenStream) -> TokenStream {
     implementation::mapping(mode, attr, toks).into()
 }
 
+#[proc_macro_attribute]
+pub fn mr(attr: TokenStream, toks: TokenStream) -> TokenStream {
+    let mode = ContractMode::Test;
+    let attr = attr.into();
+    let toks = toks.into();
+    implementation::mr(mode, attr, toks).into()
+}
+
 /// A "contract_trait" is a trait which ensures all implementors respect all
 /// provided contracts.
 ///

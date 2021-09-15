@@ -33,6 +33,19 @@ pub struct MRRunInfo {
     pub change: TokenStream,
 }
 
+pub struct MRInfo{
+    /// index of the variable binder.
+    pub index: usize,
+    /// mr relation
+    mr:ContractType,
+    pub runinfos: Vec<RunInfo>,
+}
+
+pub struct RunInfo{
+    pub retindex: usize,
+    pub variables: Vec<Ident>,
+}
+
 impl MRRunInfo{
     fn new(index: usize, retindex1: usize, retindex2: usize, mr:ContractType, variable: Ident, variable_name: String, change: TokenStream)->Self{
         MRRunInfo{
@@ -43,6 +56,25 @@ impl MRRunInfo{
             variable,
             variable_name,
             change,
+        }
+    }
+}
+
+impl RunInfo{
+    fn new(retindex: usize, variables: Vec<Ident>)->Self{
+        RunInfo{
+            retindex,
+            variables,
+        }
+    }
+}
+
+impl MRInfo{
+    fn new(index: usize, mr:ContractType, runinfos: Vec<RunInfo>)->Self{
+        MRInfo{
+            index,
+            mr,
+            runinfos,
         }
     }
 }
@@ -201,6 +233,9 @@ fn get_assert_macro(
             (ContractType::Mapping, _) => {
                 Some(Ident::new("mapping", span))
             }
+            (ContractType::MR, _) => {
+                Some(Ident::new("mr", span))
+            }
         }
     } else {
         match mode {
@@ -213,9 +248,142 @@ fn get_assert_macro(
     }
 }
 
+struct ParaModifiction<'a>{
+    function_name: String,
+    input_len: usize,
+    index: usize,
+    // c: Contract,
+    // all para list
+    inputs: &'a Vec<String>,
+    // the thing we need
+    para_binding: TokenStream,
+    //return modi para
+    variables: Vec<String>,
+}
+
+
+struct ParafindReplace<'a, 'b>{
+    variables: &'a Vec<String>,
+    base_variable: String,
+    para_binding: TokenStream,
+    ret_index: usize,
+    clone_index: &'b mut usize,
+}
+
+impl<'a, 'b> VisitMut for ParafindReplace<'a, 'b> {
+    fn visit_ident_mut(&mut self, i: &mut Ident) {
+        let ident_string = i.to_string();
+        if self.base_variable.is_empty(){
+            self.base_variable = ident_string.clone();
+        }
+        if self.variables.contains(&ident_string){
+            let paraclone = format!("{}{}{}{}",ident_string, self.clone_index, "_contract_", self.ret_index);
+            let paracloneident = syn::Ident::new(paraclone.as_str(), Span::call_site());
+            *self.clone_index = *self.clone_index + 1;
+            self.para_binding.extend(quote::quote! {
+                let #paracloneident = #i.clone();
+            });
+            *i = syn::Ident::new(paraclone.as_str(), i.span());
+        }
+    }
+}
+
+impl<'a> ParaModifiction<'a> {
+    pub fn change_for_variable(&self, var:&str, new_para:&mut Expr, clone_index:&mut usize, not_change:&mut bool) -> TokenStream{
+        let mut binding = TokenStream::new();
+        let mut changed_variables = Vec::new();
+        let new_para_string = new_para.to_token_stream().to_string();
+        if new_para_string == *var{
+            return binding
+        }
+        let mut parafindreplace = ParafindReplace{variables: self.inputs, base_variable: var.to_string(), para_binding: TokenStream::new(), ret_index: self.index, clone_index: clone_index};
+        parafindreplace.visit_expr_mut(new_para);
+        if parafindreplace.base_variable.is_empty(){
+            panic!("not enough parameter for all inputs and the given input does not have base para")
+        }
+        if changed_variables.contains(&parafindreplace.base_variable){
+            panic!("not enough parameter for all inputs, but the given inputs have duplicate para")
+        }
+        changed_variables.push(parafindreplace.base_variable.clone());
+        binding.extend(parafindreplace.para_binding);
+        let var_clone;
+        if var == ""{
+            var_clone = syn::Ident::new(parafindreplace.base_variable.as_str(), Span::call_site());
+        }else{
+            var_clone = syn::Ident::new(&var, Span::call_site());
+        }
+        if new_para_string == parafindreplace.base_variable{
+            return binding
+        }
+        let a = new_para.to_token_stream();
+        let var_clone_ident = syn::Ident::new(format!("{}{}{}",var_clone, "_contract_", self.index).as_str(), Span::call_site());
+        binding.extend(quote::quote! {
+            let mut #var_clone_ident = #a;
+        });
+        *not_change = false;
+        binding
+    }
+}
+
+
+impl<'a> VisitMut for ParaModifiction<'a> {
+    fn visit_expr_call_mut(&mut self, i: &mut ExprCall) {
+        println!("{}", i.to_token_stream().to_string());
+        let mut clone_index:usize = 0;
+        let mut not_change = true;
+        let mut binding = TokenStream::new();
+        if i.func.to_token_stream().to_string() == self.function_name{
+            if self.input_len != i.args.len(){
+                for x in &mut i.args{
+                    // println!("{} {:?}", "notsure", x);
+                    binding.extend(ParaModifiction::<'a>::change_for_variable(self, "",  x, &mut clone_index, &mut not_change));
+                }
+            }else{
+                for x in 0..i.args.len(){
+                    // println!("{} {:?}",self.inputs[x], i.args[x]);
+                    binding.extend(ParaModifiction::<'a>::change_for_variable(self, &self.inputs[x], &mut i.args[x], &mut clone_index, &mut not_change));
+                }
+            };
+            self.index += 1;
+            if not_change == true{
+                binding = TokenStream::new();
+            }
+            self.para_binding.extend(binding);
+        }else{
+            visitor::visit_expr_call_mut(self, i);
+        }
+    }
+
+    
+    fn visit_expr_method_call_mut(&mut self, i: &mut syn::ExprMethodCall) {
+        let mut clone_index:usize = 0;
+        let mut not_change = true;
+        let mut binding = TokenStream::new();
+        if i.method.to_token_stream().to_string() == self.function_name{
+            if self.input_len != i.args.len() + 1{
+                for x in &mut i.args{
+                    binding.extend(ParaModifiction::<'a>::change_for_variable(self, "a",  x, &mut clone_index, &mut not_change));
+                }
+            }else{
+                for x in 0..i.args.len(){
+                    binding.extend(ParaModifiction::<'a>::change_for_variable(self, &self.variables[x], &mut i.args[x], &mut clone_index, &mut not_change));
+                }
+            };
+            self.index += 1;   
+            if not_change == true{
+                self.para_binding = TokenStream::new();
+            }
+            self.para_binding.extend(binding);
+        }else{
+            visitor::visit_expr_method_call_mut(self, i);
+        }
+    }
+}
+
+
 struct ParaReplace{
-    new_para: String,
     old_para: String,
+    new_para: String,
 }
 
 impl VisitMut for ParaReplace {
@@ -403,6 +571,7 @@ pub(crate) fn generate(
 
     // a map for variable type <variable name, variable type> for inputs and output, self not contain type info, so not included
     let mut variable_type: HashMap<String, String> = HashMap::new();
+    let mut function_inputs = Vec::new();
     let ret_type_string= output_type.clone().to_token_stream().to_string();
     if ret_type_string.contains("Result"){
         variable_type.insert(String::from("ret"), String::from("Result"));
@@ -416,69 +585,53 @@ pub(crate) fn generate(
 
     // add input elements for variable type
     let function_signature = func.function.sig.clone();
-    let _result: Vec<usize> = function_signature.inputs.iter().
-    map(|arg|{
+    function_signature.inputs.iter().
+    for_each(|arg|{
         match arg {
+            FnArg::Receiver(r) => {
+                function_inputs.push(String::from("self"));
+            },
             FnArg::Typed(PatType { ty, pat, .. }) => {
                 variable_type.insert(pat.to_token_stream().to_string().split(" ").last().expect("no variable name here").to_string(), ty.clone().to_token_stream().to_string().split(" ").last().expect("input para type parse error").to_string());
-                1
+                function_inputs.push(pat.to_token_stream().to_string().split(" ").last().expect("no variable name here").to_string())
             },
-            _ => 0,
+            _ => {},
         }
-    }).collect();
+    });
     println!("variable_type {:?}", variable_type);
+
+    let input_len = func.function.sig.inputs.len();
+    let the_function_name = func.function.sig.ident.to_string();
+
     // a vector for mutable variable for clone perparation
     let mut_para:Vec<_> = function_signature.inputs.iter().
-    filter(|arg|{
-        
-        match arg {
-            FnArg::Receiver(r) => r.mutability != None,
-            FnArg::Typed(PatType { ty, pat, .. })=> {
-                let mut returns:bool = false;
-                match &**pat{
-                    syn::Pat::Ident(i)=>{
-                        returns = i.mutability != None;
-                    },
-                    _=>{}
-                };
-                match &**ty{
-                    syn::Type::Reference(tr) => {
-                        returns = returns | (tr.mutability != None);
-                    },
-                    _ => {}
-                };
-                returns
-            }
-        }
-    }
-        ).
-    map(|arg|{
+    filter_map(|arg|{
         match arg {
             FnArg::Receiver(r) => {
                 match r.mutability {
-                    Some(_) => "self".to_string(),
-                    None=> String::new(),
+                    Some(_) => Some("self".to_string()),
+                    None=> None,
+                }
+            },
+            FnArg::Typed(PatType { ty, pat, .. })=> {
+                match (&**ty, &**pat){
+                    (syn::Type::Reference(tr), syn::Pat::Ident(i)) => {
+                        match tr.mutability{
+                            Some(_) => Some(i.ident.to_string()),
+                            None => None,
+                        }
+                    },
+                    (_, syn::Pat::Ident(i))=>{
+                        match i.mutability{
+                            Some(_) => Some(i.ident.to_string()),
+                            None => None,
+                        }
+                    },
+                    _ => None,
                 }
             }
-            FnArg::Typed(PatType { pat, .. }) => {
-                // match &**ty{
-                //     syn::Type::Reference(tr)=> {
-                //         match (tr.mutability,&**pat) {
-                //             (Some(_),_) => pat.to_token_stream().to_string(),
-                //             (None,_) => {
-                //                 String::new()
-                //             },
-                //         }
-                //     },
-                //     _ => String::new()
-                // }
-                match &**pat{
-                    syn::Pat::Ident(i)=>{i.ident.to_string()},
-                    _=> String::new(),
-                }
-            }
-        }}
-    ).collect();
+        }
+    }).collect();
     println!("mut_para {:?}", mut_para);
 
     // FnArg::Typed(PatType { pat, .. }) => {
@@ -497,6 +650,8 @@ pub(crate) fn generate(
     // clone and modify the variable used in the relationship
     let mut clone_variable = proc_macro2::TokenStream::new();
     let mut index = 0;
+
+    let mut return_here = false;
     let modify_para: proc_macro2::TokenStream = func
         .contracts
         .iter().enumerate()
@@ -504,18 +659,25 @@ pub(crate) fn generate(
             let c = pair.1;
             c.ty == ContractType::Periodicity || c.ty == ContractType::AddNotEqual || c.ty ==ContractType::DimensionTrans
             || c.ty == ContractType::Homomorphism || c.ty == ContractType::Monotonicity || c.ty == ContractType::IterConsistency
-            || c.ty == ContractType::Symmetry || c.ty == ContractType::Mapping
+            || c.ty == ContractType::Symmetry || c.ty == ContractType::Mapping ||c.ty == ContractType::MR
         })
         .flat_map(|pair| {
             let c = pair.1;
             // println!("{:?}", c.streams);
             let contract_index = pair.0;
+            let para_number = c.streams.len();
+            if c.ty == ContractType::MR{
+                let mut a = c.assertions[0].clone();
+                let mut paramodi = ParaModifiction{function_name: the_function_name.clone(), input_len, index, inputs: &function_inputs, para_binding: TokenStream::new(), variables: Vec::new() };
+                paramodi.visit_expr_mut(&mut a);
+                return_here = true;
+                return paramodi.para_binding
+            }
             let para = c.streams.first().expect("No para here").clone();
             let para_string = para.to_string();
             let mut para_clone = para_string.clone();
             let mut _para_clone2 = para_string.clone();
             para_clone.push_str(format!("{}{}","_contract_", (index + 1).to_string()).as_str());
-            let para_number = c.streams.len();
             let modi:TokenStream;
             if para_number > 2{
                 modi = c.streams[2].clone();
@@ -638,7 +800,11 @@ pub(crate) fn generate(
             
         }).collect();
         clone_variable.extend(modify_para);
-        // println!("clone_variable:{}", clone_variable);
+        println!("clone_variable:{}", clone_variable);
+
+    if return_here == true{
+        return TokenStream::new();
+    }
 
     let mut result_unwrapped = false;
     //  generate corresponding assertions based on mr
@@ -926,6 +1092,8 @@ pub(crate) fn generate(
     let mut clone_mut = proc_macro2::TokenStream::new();
     // println!("{:?}", run_map);
     // println!("{:?}", index);
+
+    // clone the mut para
     for run_ind in 0..func.contracts.len(){
         let mr_info_result = run_map.get(&run_ind);
         let mr_info = match mr_info_result {
@@ -1167,25 +1335,11 @@ pub(crate) fn generate(
             // block_attrs = block_attrs.replace(format!("* {}", para).as_str(), format!(" {} ", para).as_str());
             let mut parareplace = ParaReplace { new_para: format!("{}{}{}", para, "_contract_", second_run_index), old_para: para.clone() };
             parareplace.visit_expr_mut(&mut block_attrs);
-            // block_attrs = block_attrs.replace(format!(" {} ", para).as_str(), format!(" {}{}{} ", para, "_contract_", second_run_index).as_str());
-            // block_attrs = block_attrs.replace(format!("({} ", para).as_str(), format!("({}{}{} ", para, "_contract_", second_run_index).as_str());
-            // block_attrs = block_attrs.replace(format!(" {})", para).as_str(), format!(" {}{}{})", para, "_contract_", second_run_index).as_str());
-            // block_attrs = block_attrs.replace(format!("({})", para).as_str(), format!("({}{}{})", para, "_contract_", second_run_index).as_str());
-            // block_attrs = block_attrs.replace(format!(" {},", para).as_str(), format!(" {}{}{},", para, "_contract_", second_run_index).as_str());
-            // block_attrs = block_attrs.replace(format!("({},", para).as_str(), format!("({}{}{},", para, "_contract_", second_run_index).as_str());
         }
-        println!("{:?}", key);
 
         // block_attrs = block_attrs.replace(format!("* {}", key).as_str(), format!(" {} ", key).as_str());
         let mut parareplace = ParaReplace { new_para: format!("{}{}{}", key, "_contract_", second_run_index), old_para: key.clone() };
         parareplace.visit_expr_mut(&mut block_attrs);
-        // block_attrs = block_attrs.replace(format!(" {} ", key).as_str(), format!(" {}{}{} ", key, "_contract_", second_run_index).as_str());
-        // block_attrs = block_attrs.replace(format!(" {} ", key).as_str(), format!(" {}{}{} ", key, "_contract_", second_run_index).as_str());
-        // block_attrs = block_attrs.replace(format!("({} ", key).as_str(), format!("({}{}{} ", key, "_contract_", second_run_index).as_str());
-        // block_attrs = block_attrs.replace(format!(" {})", key).as_str(), format!(" {}{}{})", key, "_contract_", second_run_index).as_str());
-        // block_attrs = block_attrs.replace(format!("({})", key).as_str(), format!("({}{}{})", key, "_contract_", second_run_index).as_str());
-        // block_attrs = block_attrs.replace(format!(" {},", key).as_str(), format!(" {}{}{},", key, "_contract_", second_run_index).as_str());
-        // block_attrs = block_attrs.replace(format!("({},", key).as_str(), format!("({}{}{},", key, "_contract_", second_run_index).as_str());
         // block_attrs = block_attrs.replace("\n", "");
         // let block_attrs = syn::parse_str::<Expr>(block_attrs.as_str()).expect("function body does not pass compiler");
         // println!("{:?}", &block_attrs);

@@ -17,6 +17,7 @@ pub(crate) mod homomorphism;
 pub(crate) mod symmetry;
 pub(crate) mod monotonicity;
 pub(crate) mod mapping;
+pub(crate) mod mr;
 
 use quote::ToTokens;
 use syn::{Expr, ItemFn};
@@ -33,6 +34,7 @@ pub(crate) use iterconsistency::iter_consistency;
 pub(crate) use homomorphism::homomorphism;
 pub(crate) use symmetry::symmetry;
 pub(crate) use monotonicity::monotonicity;
+pub(crate) use mr::mr;
 pub(crate) use traits::{contract_trait_item_impl, contract_trait_item_trait};
 
 /// Checking-mode of a contract.
@@ -102,6 +104,7 @@ pub(crate) enum ContractType {
     Homomorphism,
     IterConsistency,
     Mapping,
+    MR,
 }
 
 impl ContractType {
@@ -120,6 +123,7 @@ impl ContractType {
             ContractType::Homomorphism => "homomorphism",
             ContractType::IterConsistency => "iter_consistency",
             ContractType::Mapping => "mapping",
+            ContractType::MR => "mr",
         }
     }
 
@@ -157,6 +161,7 @@ impl ContractType {
             "homomorphism" => Some((ContractType::Homomorphism, ContractMode::Test)),
             "iter_consistency" => Some((ContractType::IterConsistency, ContractMode::Test)),
             "mapping" => Some((ContractType::Mapping, ContractMode::Test)),
+            "mr" => Some((ContractType::MR, ContractMode::Test)),
             _ => None,
         }
     }
