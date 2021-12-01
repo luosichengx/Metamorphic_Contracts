@@ -4,12 +4,12 @@
 
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::ToTokens;
-use syn::{Attribute, Expr, ExprCall, FnArg, PatType, ReturnType, spanned::Spanned, visit_mut::{self as visitor, VisitMut}};
+use syn::{Attribute, Expr, ExprCall, ExprIf, FnArg, PatType, ReturnType, Stmt, spanned::Spanned, visit_mut::{self as visitor, VisitMut}};
 
 use crate::implementation::{
     Contract, ContractMode, ContractType, FuncWithContracts,
 };
-use std::collections::HashMap;
+use std::{borrow::BorrowMut, collections::HashMap};
 
 /// Substitution for `old()` expressions.
 pub(crate) struct OldExpr {
@@ -33,18 +33,25 @@ pub(crate) struct OldExpr {
 //     pub change: TokenStream,
 // }
 
+// whole contract info, several running process with different changed variables with condition 
 #[derive(Debug)]
 pub struct MRInfo{
-    /// index of the variable binder.
+    /// index of the contract
     pub index: usize,
-    /// mr relation
+    /// mr relation type
     mr:ContractType,
+    // condition
+    pub condition: TokenStream,
+    /// several running process information in this contract
     pub runinfos: Vec<RunInfo>,
 }
 
+// onr running process with changed variables
 #[derive(Debug)]
 pub struct RunInfo{
+    /// return index for multiple usage of MRs
     pub retindex: usize,
+    /// changed variable in ident format
     pub variables: Vec<Ident>,
 }
 
@@ -76,9 +83,15 @@ impl MRInfo{
         MRInfo{
             index,
             mr,
+            condition:TokenStream::new(),
             runinfos,
         }
     }
+
+    fn set_condition(&mut self, condition_token:TokenStream){
+        self.condition = condition_token;
+    }
+
 }
 
 /// Extract calls to the pseudo-function `old()` in post-conditions,
@@ -253,21 +266,31 @@ fn get_assert_macro(
 struct ParaModifiction<'a>{
     function_name: String,
     input_len: usize,
+    // ret index
     index: usize,
     // c: Contract,
     // all para list
     inputs: &'a Vec<String>,
-    // the thing we need
+    // the return string
     para_binding: TokenStream,
     //return modi para
     variables: Vec<Vec<Ident>>,
+    //return changed list
     pub fn_ret_map:Vec<bool>,
+    // condition
+    condition: TokenStream,
 }
 
+// replace the para with name
+#[derive(Debug)]
 struct ParafindReplace<'a, 'b>{
+    // available variables
     variables: &'a Vec<String>,
+    // determine the used variable with the position, or name mapping, check for undefined behavior
     base_variable: String,
+    // return variables string, e.g. "book_id0_contract_1"
     para_binding: TokenStream,
+    // indexs to form return string
     ret_index: usize,
     clone_index: &'b mut usize,
 }
@@ -300,6 +323,7 @@ impl<'a> ParaModifiction<'a> {
         }
         let mut parafindreplace = ParafindReplace{variables: self.inputs, base_variable: var.to_string(), para_binding: TokenStream::new(), ret_index: self.index, clone_index: clone_index};
         parafindreplace.visit_expr_mut(new_para);
+        println!("{:?}", parafindreplace);
         if parafindreplace.base_variable.is_empty(){
             panic!("not enough parameter for all inputs and the given input does not have base para")
         }
@@ -392,8 +416,16 @@ impl<'a> VisitMut for ParaModifiction<'a> {
             visitor::visit_expr_method_call_mut(self, i);
         }
     }
+    
+    fn visit_expr_if_mut(&mut self, node: &mut ExprIf) {
+        // println!("{}", node.to_token_stream().to_string());
+        self.condition = node.cond.to_token_stream();
+        // *node = syn::parse_str(format!("{}{}", "ret", self.ret_index[self.index1]).as_str()).unwrap();
+        visitor::visit_block_mut(self, &mut node.then_branch);
+    }
 }
 
+// replace the function call to ret_(index) in the mr expression
 #[derive(Debug)]
 struct MRRet{
     pub ret_index:Vec<usize>,
@@ -430,30 +462,48 @@ impl VisitMut for MRRet {
             }else{
                 visitor::visit_expr_mut(self, node);
             }
+        }else if let Expr::If( expr) =  node {
+            let s = expr.then_branch.stmts[0].clone();
+            match s {
+                Stmt::Expr(e) => {
+                    *node = e;
+                    visitor::visit_expr_mut(self, node);
+                },
+                _=>(),
+            }
         }else{
             visitor::visit_expr_mut(self, node);
         }
     }
+
+    // fn visit_expr_if_mut(&mut self, node: &mut ExprIf) {
+    //     // println!("{}", node.to_token_stream().to_string());
+    //     // *node = syn::parse_str(format!("{}{}", "ret", self.ret_index[self.index1]).as_str()).unwrap();
+    //     visitor::visit_block_mut(self, &mut node.then_branch);
+    // }
 }
 
+// replace the para with name
 struct ParaReplace{
     old_para: String,
     new_para: String,
 }
 
 impl VisitMut for ParaReplace {
-    fn visit_ident_mut(&mut self, i: &mut Ident) {
-        let ident_string = i.to_token_stream().to_string();
-        if ident_string == self.old_para{
-            // println!("{} {}",ident_string, self.old_para);
-            *i = syn::Ident::new(self.new_para.as_str(), i.span());
-        }
-    }
+    // all ident, get upper covered by Expr path, so not used
+    // fn visit_ident_mut(&mut self, i: &mut Ident) {
+    //     println!("{:?}", i);
+    //     let ident_string = i.to_token_stream().to_string();
+    //     if ident_string == self.old_para{
+    //         // println!("{} {}",ident_string, self.old_para);
+    //         *i = syn::Ident::new(self.new_para.as_str(), i.span());
+    //     }
+    // }
 
+    // replace the variable with visitor, replace the Expr::Path with name
     fn visit_expr_mut(&mut self, node: &mut Expr) {
         // println!("test ident {:?}", node);
-        // println!("test ident {}", node.to_token_stream().to_string());
-        // println!("compare with {:?}", self.old_para);
+        // handle the removal of dereference caused by clone 
         if let Expr::Unary(exprunary) = &node {
             if exprunary.op.to_token_stream().to_string() == String::from("*") && exprunary.expr.to_token_stream().to_string() == self.old_para{
                 *node = *exprunary.expr.clone();
@@ -529,6 +579,19 @@ pub(crate) fn generate(
         } else {
             result
         }
+    };
+
+    // creates an assertion appropriate for the current mode
+    let wrap_with_condition = |
+                          condition: proc_macro2::TokenStream,
+                          exec_expr: proc_macro2::TokenStream| {
+        let span = exec_expr.span();
+        let mut result = proc_macro2::TokenStream::new();
+        let format_args = quote::quote_spanned! { span=>
+            if  #condition { #exec_expr }
+        };
+        result.extend(format_args);
+        result  
     };
 
     // creates an assertion with str instead of Expr, allow more design freedom
@@ -650,7 +713,6 @@ pub(crate) fn generate(
                 variable_type.insert(pat.to_token_stream().to_string().split(" ").last().expect("no variable name here").to_string(), ty.clone().to_token_stream().to_string().split(" ").last().expect("input para type parse error").to_string());
                 function_inputs.push(pat.to_token_stream().to_string().split(" ").last().expect("no variable name here").to_string())
             },
-            _ => {},
         }
     });
     println!("variable_type {:?}", variable_type);
@@ -721,10 +783,12 @@ pub(crate) fn generate(
             // println!("{:?}", c.streams);
             let contract_index = pair.0;
             let para_number = c.streams.len();
+            // free defined express, clone all the variables in the MR expressions
             if c.ty == ContractType::MR{
                 let mut a = c.assertions[0].clone();
                 let mut paramodi = ParaModifiction{function_name: the_function_name.clone(), input_len, index, 
-                    inputs: &function_inputs, para_binding: TokenStream::new(), variables: Vec::new(), fn_ret_map:Vec::new()};
+                    inputs: &function_inputs, para_binding: TokenStream::new(), variables: Vec::new(), fn_ret_map:Vec::new(), 
+                    condition:TokenStream::new()};
                 paramodi.visit_expr_mut(&mut a);
                 let mut info_vec = Vec::new();
                 for i in paramodi.variables{
@@ -733,7 +797,8 @@ pub(crate) fn generate(
                     index = index + 1;
                 }
                 mr_fn_ret_map.insert(contract_index, paramodi.fn_ret_map.clone());
-                let mr = MRInfo::new(contract_index, c.ty, info_vec);
+                let mut mr = MRInfo::new(contract_index, c.ty, info_vec);
+                mr.set_condition(paramodi.condition);
                 run_map.insert(contract_index, mr);
                 return paramodi.para_binding
             }
@@ -1161,13 +1226,14 @@ pub(crate) fn generate(
                     // println!("{:?}", mrret);
                     mrret.visit_expr_mut(&mut asserts_expr);
                     let asserts = asserts_expr.to_token_stream();
-                    let assert_stream = make_str_assertion(
+                    let mut assert_stream = make_str_assertion(
                         mode,
                         ContractType::MR,
                         asserts,
                         c.assertions[mr_info.index].to_token_stream().to_string().as_str(),
                         &desc.clone(),
                     );
+                    assert_stream = wrap_with_condition(mr_info.condition.clone(), assert_stream);
                     quote::quote! { 
                         #ret_unwraps
                         #assert_stream
@@ -1444,8 +1510,10 @@ pub(crate) fn generate(
         // let block_attrs = syn::parse_str::<Expr>(block_attrs.as_str()).expect("function body does not pass compiler");
         // println!("{:?}", &block_attrs);
 
-        let second_run_body = new_function_body_with_index(second_run_index, ret_ty.clone(), block_attrs);
+        let mut second_run_body = new_function_body_with_index(second_run_index, ret_ty.clone(), block_attrs);
         // println!("{}", second_run_body);
+
+        // second_run_body = wrap_with_condition(mr_info.condition.clone(), second_run_body);
 
         let new_body:TokenStream = quote::quote! {
 
